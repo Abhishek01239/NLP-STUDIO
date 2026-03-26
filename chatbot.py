@@ -2,6 +2,7 @@ import streamlit as st
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+
 @st.cache_resource
 def load_chat_model():
     model_name = "microsoft/DialoGPT-medium"
@@ -9,7 +10,8 @@ def load_chat_model():
     model = AutoModelForCausalLM.from_pretrained(model_name)
     return tokenizer, model
 
-def get_response(user_input: str, chat_history_ids = None) -> tuple:
+
+def get_response(user_input: str, chat_history_ids=None) -> tuple:
     """
     Generates a chatbot reply given user input and previous conversation history.
 
@@ -22,38 +24,43 @@ def get_response(user_input: str, chat_history_ids = None) -> tuple:
     """
     tokenizer, model = load_chat_model()
 
+    # ── 1. Encode the new user message ────────────────────────────────────────
     new_input_ids = tokenizer.encode(
-            user_input + tokenizer.eos_token,
-            return_tensors ="pt"
-        )
+        user_input + tokenizer.eos_token,
+        return_tensors="pt"
+    )
 
+    # ── 2. Append new message to conversation history ─────────────────────────
     if chat_history_ids is not None and len(chat_history_ids) > 0:
-         history_tensor = torch.cat([chat_history_ids, new_input_ids], dim =-1)
-
+        history_tensor = torch.cat([chat_history_ids, new_input_ids], dim=-1)
     else:
-        history_tensor =new_input_ids
+        history_tensor = new_input_ids
 
-    if history_tensor.shape[-1] >512:
-        history_tensor = history_tensor[:,-512:]
+    # ── 3. Trim history to last 512 tokens to avoid memory overflow ───────────
+    if history_tensor.shape[-1] > 512:
+        history_tensor = history_tensor[:, -512:]
 
+    # ── 4. Generate response ──────────────────────────────────────────────────
     with torch.no_grad():
         bot_output = model.generate(
             history_tensor,
-            max_length = history_tensor.shape[-1]+ 100,
-            pad_token_id = tokenizer.eos_token_id,
-            do_sample = True,
-            top_k = 50,
-            top_p = 0.95,
-            temperature = 0.75,
-            repetetion_penalty = 1.3,
-        ) 
-    
+            max_length=history_tensor.shape[-1] + 100,
+            pad_token_id=tokenizer.eos_token_id,
+            do_sample=True,
+            top_k=50,
+            top_p=0.95,
+            temperature=0.75,
+            repetition_penalty=1.3,
+        )
+
+    # ── 5. Decode only the new tokens (bot's reply) ───────────────────────────
     response = tokenizer.decode(
         bot_output[:, history_tensor.shape[-1]:][0],
-        skip_special_tokens = True
+        skip_special_tokens=True
     )
 
-    if not response_strip():
+    # ── 6. Fallback if model returns empty string ─────────────────────────────
+    if not response.strip():
         response = "I'm not sure how to respond to that. Could you rephrase?"
+
     return response, bot_output
-    
